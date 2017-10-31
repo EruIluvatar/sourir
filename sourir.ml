@@ -7,6 +7,7 @@ let opts = ref []
 let path = ref ""
 let ott = ref false
 let num_opts = ref 1
+let llvm = ref false
 
 let () =
   let cmd_args = [
@@ -17,6 +18,7 @@ let () =
     ("--opt", Arg.String (fun s -> opts := String.split_on_char ',' s), "Enable optimizations");
     ("--num", Arg.String (fun s -> num_opts := int_of_string s), "Number of optimization runs");
     ("--ott", Arg.Set ott, "Output ott rendering");
+    ("--llvm", Arg.Set llvm, "Append LLVM output");
   ] in
   Arg.parse cmd_args (fun s ->
       if !path <> "" then raise (Arg.Bad ("Invalid argument "^s));
@@ -101,6 +103,11 @@ let () =
   | Scope.ScopeExceptionAt _ as exn ->
     Printf.eprintf "Scope error in the source program:\n";
     Scope.report_error program exn
+  end;
+
+  (* Try running the program though llvm before optimizing *)
+  if !llvm then begin
+    print_string "Starting llvm codegen\n"
   end;
 
   let optimize program =

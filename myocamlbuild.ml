@@ -53,5 +53,8 @@ let _ = dispatch begin fun hook ->
         ~stamp:"%.messages.update"
         ~deps:["%.mly"; "%.messages"]
         menhir_update_messages;
+      (* make sure LLVM is loaded *)
+      ocaml_lib ~extern:true "llvm";
+      ocaml_lib ~extern:true "llvm_analysis";
     | _ -> ()
   end

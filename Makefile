@@ -13,6 +13,9 @@ OCAMLBUILD+= -no-links
 # Bisect ocamlbuild plugin for coverage analysis
 OCAMLBUILD+= -plugin-tag 'package(bisect_ppx-ocamlbuild)'
 
+# LLVM plugin
+OCAMLBUILD+= -package llvm
+
 all: tests test_examples sourir
 
 tests:
