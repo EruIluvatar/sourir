@@ -541,10 +541,10 @@ let do_test_reaching = function () ->
   let reaching = reaching v in
   assert_equal_sorted (PosSet.elements (reaching 0))  [];
   assert_equal_sorted (PosSet.elements (reaching 1))  [];
-  assert_equal_sorted (PosSet.elements (reaching 2))  [Analysis.Instr 0; Analysis.Instr 1];
-  assert_equal_sorted (PosSet.elements (reaching 5))  [Analysis.Instr 0; Analysis.Instr 4];
-  assert_equal_sorted (PosSet.elements (reaching 12))  [Analysis.Instr 13; Analysis.Instr 0; Analysis.Instr 4];
-  assert_equal_sorted (PosSet.elements (reaching 17)) [Analysis.Instr 13; Analysis.Instr 12];
+  assert_equal_sorted (PosSet.elements (reaching 2))  [Instr 0;  Instr 1];
+  assert_equal_sorted (PosSet.elements (reaching 5))  [Instr 0;  Instr 4];
+  assert_equal_sorted (PosSet.elements (reaching 12)) [Instr 13; Instr 0; Instr 4];
+  assert_equal_sorted (PosSet.elements (reaching 17)) [Instr 13; Instr 12];
   assert_equal_sorted (PosSet.elements (reaching 0))  []
 
 ;;

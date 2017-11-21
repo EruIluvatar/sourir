@@ -34,6 +34,10 @@ end
 type pc = Pc.t
 type address = Address.t
 
+type instr_position =
+  | Arg
+  | Instr of pc
+
 type 'a position = {
   func : label;
   version : label;

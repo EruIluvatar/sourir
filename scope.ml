@@ -10,7 +10,7 @@ exception ExtraneousVariable of VarSet.t * pc
 exception DuplicateVariable of VarSet.t * pc
 
 module Declaration = struct
-  type t = string * pc
+  type t = string * instr_position
   let compare a b =
     if fst a = fst b then
       Pervasives.compare (snd a) (snd b)
@@ -31,7 +31,7 @@ type inference_state = {
 
 exception IncompatibleScope of inference_state * inference_state * pc
 
-let infer ({formals; instrs} : analysis_input) : inferred_scope array =
+let infer_int ({formals; instrs} : analysis_input) =
   let open Analysis in
 
   let infer_scope instructions =
@@ -45,7 +45,7 @@ let infer ({formals; instrs} : analysis_input) : inferred_scope array =
       let instr = instructions.(pc) in
       let declared_vars = Instr.declared_vars instr in
       let decls = VarSet.elements declared_vars
-                |> List.map (fun v -> (v, pc))
+                |> List.map (fun v -> (v, Instr pc))
                 |> DeclSet.of_list in
       let info = cur.info in
       let shadowed = VarSet.inter (decl_as_var_set info) declared_vars in
@@ -57,7 +57,7 @@ let infer ({formals; instrs} : analysis_input) : inferred_scope array =
       let final_info = List.fold_left remove updated dropped in
       { sources = PcSet.singleton pc; info = final_info; }
     in
-    let initial = List.map (fun var -> (var, -1)) formals in
+    let initial = List.map (fun var -> (var, Arg)) formals in
     let initial_state = { sources = PcSet.empty; info = DeclSet.of_list initial; } in
     let res = Analysis.forward_analysis initial_state instrs merge update in
     fun pc -> (res pc).info in
@@ -66,15 +66,34 @@ let infer ({formals; instrs} : analysis_input) : inferred_scope array =
 
   let resolve pc instr =
     match inferred pc with
-    | exception Analysis.UnreachableCode _ -> DeadScope
+    | exception Analysis.UnreachableCode _ -> None
     | declared ->
-      let declared = decl_as_var_set declared in
+      let declared_vars = decl_as_var_set declared in
       let required = Instr.required_vars instr in
-      if not (VarSet.subset required declared)
-      then raise (UndeclaredVariable (VarSet.diff required declared, pc));
-      Scope declared in
+      if not (VarSet.subset required declared_vars)
+      then raise (UndeclaredVariable (VarSet.diff required declared_vars, pc));
+      Some declared in
 
   Array.mapi resolve instrs
+
+let infer (inp : analysis_input) : inferred_scope array =
+  let inf = infer_int inp in
+  let map = function
+    | None -> DeadScope
+    | Some declared -> Scope (decl_as_var_set declared) in
+  Array.map map inf
+
+let infer_decl (inp : analysis_input) : (pc -> variable -> instr_position) =
+  let inf = infer_int inp in
+  fun pc var ->
+    match inf.(pc) with
+    | None -> raise (Analysis.UnreachableCode pc)
+    | Some declared ->
+      let find (x, pos) = x = var in
+      let declarations = DeclSet.filter find declared in
+       if DeclSet.cardinal declarations = 0 then raise (UndeclaredVariable (VarSet.singleton var, pc)) else
+       if DeclSet.cardinal declarations > 1 then raise (DuplicateVariable (VarSet.singleton var, pc)) else
+       snd (DeclSet.choose declarations)
 
 let check (scope : inferred_scope array) annotations =
   let check_at pc scope =
@@ -142,7 +161,9 @@ let explain_incompatible_scope outchan s1 s2 pc =
   in
   let print_vars buf vars =
     let print_var buf var =
-      Printf.bprintf buf "var %s(%d)" (fst var) (snd var) in
+      match snd var with
+      | Arg -> Printf.bprintf buf "var %s(arg)" (fst var)
+      | Instr pc -> Printf.bprintf buf "var %s(%d)" (fst var) pc in
     let vars = DeclSet.elements vars |> Array.of_list in
     Printf.bprintf buf "{";
     print_sep buf print_var vars ", " ", ";

@@ -1,13 +1,9 @@
 open Instr
 open Types
 
-type position =
-  | Arg
-  | Instr of pc
-
 module Position = struct
-  type t = position
-  let compare (x : position) (y : position) =
+  type t = instr_position
+  let compare (x : instr_position) (y : instr_position) =
     match x, y with
     | Arg, Arg -> 0
     | Arg, _ -> -1
