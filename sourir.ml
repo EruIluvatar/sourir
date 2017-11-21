@@ -108,7 +108,6 @@ let () =
   (* Try running the program though llvm before optimizing *)
   if !llvm then begin
     Codegen.generate program;
-    dump_module Codegen.the_module
   end;
 
   let optimize program =
