@@ -20,4 +20,4 @@ true: warn(+4)
 <parser.*>: -warn(+4)
 
 # use llvm for building binaries
-<*.{byte,native}>: g++, use_llvm, use_llvm_analysis
+<*.{byte,native}>: use_llvm, use_llvm_analysis
