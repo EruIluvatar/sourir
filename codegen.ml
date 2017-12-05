@@ -6,9 +6,11 @@ exception Error of string
 let context = global_context ()
 let the_module = create_module context "Sourir LLVM Jit"
 let builder = builder context
-let double_type = double_type context
-
 let i32 = i32_type context
+
+let create_entry_block_alloca the_function var_name =
+  let builder = builder_at context (instr_begin (entry_block the_function)) in
+  build_alloca i32 var_name builder
 
 let func_decl name =
   (* Make the function type: double(double,double) etc. *)
@@ -73,16 +75,16 @@ let generate_instr func scope formals (prog : instructions) : unit =
         build_ret ret_val builder;
         ()
     | Decl_var (var, exp) ->
+        let start_val = dump_expr exp in
+        (* let start_val = const_int i32 0 in *)
+
+        (*let alloca = build_alloca i32 var bb in *)
+        let alloca = create_entry_block_alloca func var in
+        (* Store value into alloc *)
+        ignore(build_store start_val alloca builder);
+        let id = (Instr pc, var) in
+        Hashtbl.add llvm_scope id alloca;
         ()
-        (* TODO:
-         * Declare this variable in the lexical scope using pc as the id.
-         * Something like:
-         *
-         * let alloca = llvm_alloca in
-         * let id = (Instr pc, var) in
-         * Hashtbl.add id alloca scope
-         *
-         * *)
     | Call (l, var, f, args) ->
         assert(false)
     | Stop exp ->
