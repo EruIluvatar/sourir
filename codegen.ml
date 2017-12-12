@@ -4,15 +4,10 @@ open Instr
 exception Error of string
 
 let context = global_context ()
-let the_module = create_module context "Sourir LLVM Jit"
 let builder = builder context
 let i32 = i32_type context
 
-let create_entry_block_alloca the_function var_name =
-  let builder = builder_at context (instr_begin (entry_block the_function)) in
-  build_alloca i32 var_name builder
-
-let func_decl name =
+let func_decl the_module name =
   (* Make the function type: double(double,double) etc. *)
   let ft = function_type i32 [| |] in
   match lookup_function name the_module with
@@ -83,7 +78,7 @@ let generate_instr func scope formals (prog : instructions) : unit =
         (* let start_val = const_int i32 0 in *)
 
         (*let alloca = build_alloca i32 var bb in *)
-        let alloca = create_entry_block_alloca func var in
+        let alloca = build_alloca i32 var builder in
         (* Store value into alloc *)
         ignore(build_store start_val alloca builder);
         let id = (Instr pc, var) in
@@ -128,12 +123,13 @@ let generate_instr func scope formals (prog : instructions) : unit =
   Array.iteri (dump_instr func) prog
 
 let generate (program : Instr.program) =
+  let the_module = create_module context "Sourir LLVM Jit" in
   let open Types in
   List.iter (fun ({name; formals; body} as sourir_function) ->
       List.iter (fun version ->
-        let llvm_function = func_decl (String.concat "::" [name; version.label]) in
+        let llvm_function = func_decl the_module (String.concat "::" [name; version.label]) in
         let scope = Scope.infer_decl (Analysis.as_analysis_input sourir_function version) in
-        generate_instr llvm_function scope formals version.instrs) body
-    ) (program.main :: program.functions);
-  dump_module the_module
-
+        generate_instr llvm_function scope formals version.instrs;
+        Llvm_analysis.assert_valid_function llvm_function) body
+      ) (program.main :: program.functions);
+  the_module

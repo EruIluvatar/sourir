@@ -1,5 +1,6 @@
 true: bin_annot
 true: package(menhirLib)
+true: package(ctypes), package(ctypes.foreign), package(llvm)
 <tests.*>: package(oUnit)
 <parser.*>: menhir_table
 
@@ -21,3 +22,5 @@ true: warn(+4)
 
 # use llvm for building binaries
 <*.{byte,native}>: use_llvm, use_llvm_analysis
+<*.{byte,native}>: use_llvm_executionengine, use_llvm_target
+<*.{byte,native}>: use_llvm_scalar_opts

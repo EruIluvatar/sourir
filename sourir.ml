@@ -105,11 +105,6 @@ let () =
     Scope.report_error program exn
   end;
 
-  (* Try running the program though llvm before optimizing *)
-  if !llvm then begin
-    Codegen.generate program;
-  end;
-
   let optimize program =
     let optimizations = Transform.optimize !opts !num_opts in
     Transform.(try_opt optimizations program)
@@ -138,6 +133,12 @@ let () =
     Printf.eprintf "Scope error in the optimized program (%s):\n"
       (String.concat ", " !opts);
     Scope.report_error program exn
+  end;
+
+  (* Try running the program though llvm before optimizing *)
+  if !llvm then begin
+    let the_module = Codegen.generate program in
+    let _ = Jit.exec the_module in ()
   end;
 
   if not !run then ()
