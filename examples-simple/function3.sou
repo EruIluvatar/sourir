@@ -2,7 +2,7 @@ function main ()
   var bar = 3
   return bar
 
-function foo ()
+function foo (var param)
   var bar = 12
-  return (11 + bar)
+  return (param + bar)
 

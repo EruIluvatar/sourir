@@ -7,9 +7,14 @@ let context = global_context ()
 let builder = builder context
 let i32 = i32_type context
 
-let func_decl the_module name =
+let create_entry_block_alloca the_function var_name =
+  let builder = builder_at context (instr_begin (entry_block the_function)) in
+  build_alloca i32 var_name builder
+
+let func_decl the_module name formals =
   (* Make the function type: double(double,double) etc. *)
-  let ft = function_type i32 [| |] in
+  let params = Array.make (List.length formals) i32 in
+  let ft = function_type i32 params in
   match lookup_function name the_module with
   | None -> declare_function name ft the_module
   | Some _ -> assert false
@@ -23,6 +28,12 @@ let generate_instr func scope formals (prog : instructions) : unit =
   position_at_end bb builder;
 
   (* todo : function arguments *)
+  List.iteri (fun i (Param name) ->
+    let arg = (params func).(i) in
+    let id = (Arg, name) in
+    set_value_name name arg;
+    Hashtbl.add llvm_scope id arg;
+  ) formals;
 
   let dump_instr func pc instr : unit =
     let var_id var = (scope pc var, var) in
@@ -35,10 +46,8 @@ let generate_instr func scope formals (prog : instructions) : unit =
           let id = var_id v in
           begin match id with
           | Arg, x     ->
-                Printf.printf "Variable %s on line %d is a function argument\n" x pc;
-                assert(false)
+                Hashtbl.find llvm_scope id
           | Instr i, x ->
-              Printf.printf "Variable %s on line %d is declared at %d\n" x pc i;
               let alloca = (try Hashtbl.find llvm_scope id with
                             | Not_found -> raise (Error "unknown variable name")) in
               build_load alloca x builder
@@ -127,7 +136,7 @@ let generate (program : Instr.program) =
   let open Types in
   List.iter (fun ({name; formals; body} as sourir_function) ->
       List.iter (fun version ->
-        let llvm_function = func_decl the_module (String.concat "::" [name; version.label]) in
+        let llvm_function = func_decl the_module (String.concat "::" [name; version.label]) formals in
         let scope = Scope.infer_decl (Analysis.as_analysis_input sourir_function version) in
         generate_instr llvm_function scope formals version.instrs;
         Llvm_analysis.assert_valid_function llvm_function) body
