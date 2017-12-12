@@ -1,0 +1,7 @@
+function main ()
+  var bar = 3
+
+function foo ()
+  var bar = 12
+  return (11 + bar)
+

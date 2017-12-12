@@ -39,11 +39,15 @@ let generate_instr func scope formals (prog : instructions) : unit =
       | Var v             ->
           let id = var_id v in
           begin match id with
-          | Arg, x     -> Printf.printf "Variable %s on line %d is a function argument\n" x pc
-          | Instr i, x -> Printf.printf "Variable %s on line %d is declared at %d\n" x pc i
-          end ;
-          (try Hashtbl.find llvm_scope id with
-           | Not_found -> raise (Error "unknown variable name"))
+          | Arg, x     ->
+                Printf.printf "Variable %s on line %d is a function argument\n" x pc;
+                assert(false)
+          | Instr i, x ->
+              Printf.printf "Variable %s on line %d is declared at %d\n" x pc i;
+              let alloca = (try Hashtbl.find llvm_scope id with
+                            | Not_found -> raise (Error "unknown variable name")) in
+              build_load alloca x builder
+          end
       | Constant c        -> value_ c
     in
     let dump_expr exp : Llvm.llvalue =
