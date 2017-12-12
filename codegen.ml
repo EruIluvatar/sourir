@@ -45,6 +45,7 @@ let generate_instr program the_module func scope formals (prog : instructions) :
   (* the llvm_scope remembers the declaration of local variables. We use
    * the infered declaration site of the variable for the index. *)
   let llvm_scope : (instr_position * variable, llvalue) Hashtbl.t = Hashtbl.create 10 in
+  let labels : (string, llbasicblock) Hashtbl.t = Hashtbl.create 10 in
 
   let bb = append_block context "entry" func in
   position_at_end bb builder;
@@ -57,6 +58,33 @@ let generate_instr program the_module func scope formals (prog : instructions) :
     Hashtbl.add llvm_scope id arg;
   ) formals;
 
+  (* Pass 1: Generate Basic blocks and declare local variables *)
+  let dump_instr func pc instr : unit =
+    begin match instr with
+    | Decl_var (var, exp) ->
+        let alloca = build_alloca i32 var builder in
+        let id = (Instr pc, var) in
+        Hashtbl.add llvm_scope id alloca;
+        ()
+    | Call (l, var, f, args) ->
+        let alloca = build_alloca i32 var builder in
+        let id = (Instr pc, var) in
+        Hashtbl.add llvm_scope id alloca;
+        ()
+    | Decl_array (var, Length exp) ->
+        assert(false)
+    | Decl_array (var, List li) ->
+        assert(false)
+    | Label (MergeLabel label | BranchLabel label) ->
+        let bb = append_block context label func in
+        Hashtbl.add labels label bb
+    | _ ->
+        ()
+    end
+  in
+  Array.iteri (dump_instr func) prog;
+
+  (* Pass 2: Compile instructions *)
   let dump_instr func pc instr : unit =
     let var_id var = (scope pc var, var) in
     let value_ = function
@@ -99,6 +127,7 @@ let generate_instr program the_module func scope formals (prog : instructions) :
       | Array_length _     -> assert(false)
     in
     let dump_arg arg = dump_expr arg in
+
     begin match instr with
     | Return exp                      ->
         Printf.printf "ret\n";
@@ -107,12 +136,10 @@ let generate_instr program the_module func scope formals (prog : instructions) :
         ()
     | Decl_var (var, exp) ->
         let start_val = dump_expr exp in
-
-        let alloca = build_alloca i32 var builder in
+        let id = (Instr pc, var) in
+        let alloca = Hashtbl.find llvm_scope id in
         (* Store value into alloc *)
         ignore(build_store start_val alloca builder);
-        let id = (Instr pc, var) in
-        Hashtbl.add llvm_scope id alloca;
         ()
     | Call (l, var, f, args) ->
         let func_ref = dump_expr f in
@@ -120,11 +147,10 @@ let generate_instr program the_module func scope formals (prog : instructions) :
         let func_args = Array.of_list func_args in
         let ret_val = build_call func_ref func_args "calltmp" builder in
 
-        let alloca = build_alloca i32 var builder in
+        let id = (Instr pc, var) in
+        let alloca = Hashtbl.find llvm_scope id in
         (* Store value into alloc *)
         ignore(build_store ret_val alloca builder);
-        let id = (Instr pc, var) in
-        Hashtbl.add llvm_scope id alloca;
         ()
     | Stop exp ->
         assert(false)
@@ -140,12 +166,12 @@ let generate_instr program the_module func scope formals (prog : instructions) :
         assert(false)
     | Branch (exp, l1, l2) ->
         assert(false)
-    | Label (MergeLabel label) ->
-        assert(false)
-    | Label (BranchLabel label) ->
-        assert(false)
+    | Label (MergeLabel label | BranchLabel label) ->
+        let bb = Hashtbl.find labels label in
+        position_at_end bb builder; ()
     | Goto label ->
-        assert(false)
+        let bb = Hashtbl.find labels label in
+        build_br bb builder; ()
     | Print exp ->
         assert(false)
     | Assert exp ->

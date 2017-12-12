@@ -1,0 +1,14 @@
+function main ()
+  var bar = 3
+  goto la
+ lb:
+  return baz
+ la:
+  call baz = 'foo (bar, 5)
+  goto lb
+
+function foo (var param1, var param2)
+  var bar = 12
+  var foo = (bar - param1)
+  return (param2 + foo)
+
