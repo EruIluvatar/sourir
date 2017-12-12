@@ -19,7 +19,29 @@ let func_decl the_module name formals =
   | None -> declare_function name ft the_module
   | Some _ -> assert false
 
-let generate_instr func scope formals (prog : instructions) : unit =
+let func_lookup the_module name =
+  (* Make the function type: double(double,double) etc. *)
+  match lookup_function name the_module with
+  | Some f -> f
+  | None -> assert false
+
+let get_active_version the_module program (fun_name : string)=
+  let rec iter_functions = function
+    | func :: functions ->
+        if func.name = fun_name then
+          (*find first version *)
+          let active_version = List.hd func.body in
+          (String.concat "::" [fun_name; active_version.label])
+        else
+          iter_functions functions
+    | [ ] ->
+        assert(false)
+  in
+  let name = iter_functions (program.main :: program.functions) in
+  func_lookup the_module name
+
+
+let generate_instr program the_module func scope formals (prog : instructions) : unit =
   (* the llvm_scope remembers the declaration of local variables. We use
    * the infered declaration site of the variable for the index. *)
   let llvm_scope : (instr_position * variable, llvalue) Hashtbl.t = Hashtbl.create 10 in
@@ -39,7 +61,8 @@ let generate_instr func scope formals (prog : instructions) : unit =
     let var_id var = (scope pc var, var) in
     let value_ = function
       | Int i -> const_int i32 i
-      | (Nil|Bool _|Fun_ref _|Array _) -> assert(false)
+      | Fun_ref f -> get_active_version the_module program f
+      | (Nil|Bool _|Array _) -> assert(false)
     in
     let simple = function
       | Var v             ->
@@ -84,9 +107,7 @@ let generate_instr func scope formals (prog : instructions) : unit =
         ()
     | Decl_var (var, exp) ->
         let start_val = dump_expr exp in
-        (* let start_val = const_int i32 0 in *)
 
-        (*let alloca = build_alloca i32 var bb in *)
         let alloca = build_alloca i32 var builder in
         (* Store value into alloc *)
         ignore(build_store start_val alloca builder);
@@ -94,7 +115,17 @@ let generate_instr func scope formals (prog : instructions) : unit =
         Hashtbl.add llvm_scope id alloca;
         ()
     | Call (l, var, f, args) ->
-        assert(false)
+        let func_ref = dump_expr f in
+        let func_args = List.map dump_expr args in
+        let func_args = Array.of_list func_args in
+        let ret_val = build_call func_ref func_args "calltmp" builder in
+
+        let alloca = build_alloca i32 var builder in
+        (* Store value into alloc *)
+        ignore(build_store ret_val alloca builder);
+        let id = (Instr pc, var) in
+        Hashtbl.add llvm_scope id alloca;
+        ()
     | Stop exp ->
         assert(false)
     | Decl_array (var, Length exp) ->
@@ -131,14 +162,23 @@ let generate_instr func scope formals (prog : instructions) : unit =
   in
   Array.iteri (dump_instr func) prog
 
+
+
 let generate (program : Instr.program) =
   let the_module = create_module context "Sourir LLVM Jit" in
   let open Types in
   List.iter (fun ({name; formals; body} as sourir_function) ->
       List.iter (fun version ->
         let llvm_function = func_decl the_module (String.concat "::" [name; version.label]) formals in
+        ()
+      ) body
+    )(program.main :: program.functions);
+
+  List.iter (fun ({name; formals; body} as sourir_function) ->
+      List.iter (fun version ->
+        let llvm_function = func_lookup the_module (String.concat "::" [name; version.label]) in
         let scope = Scope.infer_decl (Analysis.as_analysis_input sourir_function version) in
-        generate_instr llvm_function scope formals version.instrs;
+        generate_instr program the_module llvm_function scope formals version.instrs;
         Llvm_analysis.assert_valid_function llvm_function) body
       ) (program.main :: program.functions);
   the_module

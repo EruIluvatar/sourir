@@ -1,0 +1,10 @@
+function main ()
+  var bar = 3
+  call baz = 'foo (bar, 5)
+  return baz
+
+function foo (var param1, var param2)
+  var bar = 12
+  var foo = (bar - param1)
+  return (param2 + foo)
+
