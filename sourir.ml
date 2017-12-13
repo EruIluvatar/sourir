@@ -8,6 +8,7 @@ let path = ref ""
 let ott = ref false
 let num_opts = ref 1
 let llvm = ref false
+let no_optimize = ref false
 
 let () =
   let cmd_args = [
@@ -19,6 +20,7 @@ let () =
     ("--num", Arg.String (fun s -> num_opts := int_of_string s), "Number of optimization runs");
     ("--ott", Arg.Set ott, "Output ott rendering");
     ("--llvm", Arg.Set llvm, "Append LLVM output");
+    ("--no-optimize", Arg.Set no_optimize, "Don't optimize (for debugging)");
   ] in
   Arg.parse cmd_args (fun s ->
       if !path <> "" then raise (Arg.Bad ("Invalid argument "^s));
@@ -110,11 +112,14 @@ let () =
     Transform.(try_opt optimizations program)
   in
 
-  let program = try optimize program with
+  let program =
+    if not !no_optimize
+    then try optimize program with
     | Transform.UnknownOptimization opt ->
       Printf.eprintf "Unknown optimization %s.\nValid optimizers are %s\n"
         opt (String.concat ", " (Transform.all_opts @ Transform.manual_opts));
       exit 1
+    else program
   in
 
   if !ott then begin

@@ -112,18 +112,18 @@ let generate_instr program the_module func scope formals (prog : instructions) :
       | Unop (Neg, a)      -> simple a
       | Unop (Not, a)      -> simple a
       | Binop (Plus, a, b) -> build_add (simple a) (simple b) "addtmp" builder
-      | Binop (Sub, a, b)  -> build_sub (simple a) (simple b) "subtmp" builder
+      | Binop (Sub,  a, b) -> build_sub (simple a) (simple b) "subtmp" builder
       | Binop (Mult, a, b) -> build_mul (simple a) (simple b) "multtmp" builder
       | Binop (Div,  a, b) -> build_udiv (simple a) (simple b) "divtmp" builder
-      | Binop (Mod,  _, _)
-      | Binop (Eq,   _, _)
-      | Binop (Neq,  _, _)
-      | Binop (Lt,   _, _)
-      | Binop (Lte,  _, _)
-      | Binop (Gt,   _, _)
-      | Binop (Gte,  _, _)
+      | Binop (Eq,   a, b) -> build_icmp Icmp.Eq (simple a) (simple b) "eqtmp" builder
+      | Binop (Neq,  a, b) -> build_icmp Icmp.Ne (simple a) (simple b) "eqtmp" builder
+      | Binop (Lt,   a, b) -> build_icmp Icmp.Slt (simple a) (simple b) "eqtmp" builder
+      | Binop (Lte,  a, b) -> build_icmp Icmp.Sle (simple a) (simple b) "eqtmp" builder
+      | Binop (Gt,   a, b) -> build_icmp Icmp.Sgt (simple a) (simple b) "eqtmp" builder
+      | Binop (Gte,  a, b) -> build_icmp Icmp.Sge (simple a) (simple b) "eqtmp" builder
       | Binop (And,  _, _)
       | Binop (Or,   _, _)
+      | Binop (Mod,  _, _)
       | Array_index (_, _)
       | Array_length _     -> assert(false)
     in
@@ -169,7 +169,10 @@ let generate_instr program the_module func scope formals (prog : instructions) :
     | Array_assign (var, index, exp) ->
         assert(false)
     | Branch (exp, l1, l2) ->
-        assert(false)
+        (* add basic block to builder at current position *)
+        let l1 = Hashtbl.find labels l1 in
+        let l2 = Hashtbl.find labels l2 in
+        build_cond_br (dump_expr exp) l1 l2 builder; ()
     | Label (MergeLabel label | BranchLabel label) ->
         (* add basic block to builder at current position *)
         let bb = Hashtbl.find labels label in
