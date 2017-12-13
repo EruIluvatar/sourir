@@ -7,12 +7,7 @@ let context = global_context ()
 let builder = builder context
 let i32 = i32_type context
 
-let create_entry_block_alloca the_function var_name =
-  let builder = builder_at context (instr_begin (entry_block the_function)) in
-  build_alloca i32 var_name builder
-
 let func_decl the_module name formals =
-  (* Make the function type: double(double,double) etc. *)
   let params = Array.make (List.length formals) i32 in
   let ft = function_type i32 params in
   match lookup_function name the_module with
@@ -20,19 +15,21 @@ let func_decl the_module name formals =
   | Some _ -> assert false
 
 let func_lookup the_module name =
-  (* Make the function type: double(double,double) etc. *)
   match lookup_function name the_module with
   | Some f -> f
   | None -> assert false
 
-let get_active_version the_module program (fun_name : string)=
+(* for each function, find the first version *)
+let get_active_version the_module program fun_name =
   let rec iter_functions = function
     | func :: functions ->
         if func.name = fun_name then
           (*find first version *)
           let active_version = List.hd func.body in
+          (* return it *)
           (String.concat "::" [fun_name; active_version.label])
         else
+          (* iterate again *)
           iter_functions functions
     | [ ] ->
         assert(false)
@@ -40,17 +37,18 @@ let get_active_version the_module program (fun_name : string)=
   let name = iter_functions (program.main :: program.functions) in
   func_lookup the_module name
 
-
 let generate_instr program the_module func scope formals (prog : instructions) : unit =
   (* the llvm_scope remembers the declaration of local variables. We use
    * the infered declaration site of the variable for the index. *)
   let llvm_scope : (instr_position * variable, llvalue) Hashtbl.t = Hashtbl.create 10 in
   let labels : (string, llbasicblock) Hashtbl.t = Hashtbl.create 10 in
 
+  (* create entry block for function *)
   let bb = append_block context "entry" func in
   position_at_end bb builder;
 
-  (* todo : function arguments *)
+  (* Store function arguments into the llvm_scope table,
+   * set the names of the (positional) function arguments *)
   List.iteri (fun i (Param name) ->
     let arg = (params func).(i) in
     let id = (Arg, name) in
@@ -67,6 +65,8 @@ let generate_instr program the_module func scope formals (prog : instructions) :
         Hashtbl.add llvm_scope id alloca;
         ()
     | Call (l, var, f, args) ->
+        (* Call is not an expression, it stores the return value in l.
+         * Therefor we need an alloca *)
         let alloca = build_alloca i32 var builder in
         let id = (Instr pc, var) in
         Hashtbl.add llvm_scope id alloca;
@@ -76,6 +76,7 @@ let generate_instr program the_module func scope formals (prog : instructions) :
     | Decl_array (var, List li) ->
         assert(false)
     | Label (MergeLabel label | BranchLabel label) ->
+        (* Create own basic blocks, stored in 'labels' table *)
         let bb = append_block context label func in
         Hashtbl.add labels label bb
     | _ ->
@@ -87,7 +88,7 @@ let generate_instr program the_module func scope formals (prog : instructions) :
   (* Pass 2: Compile instructions *)
   let dump_instr func pc instr : unit =
     let var_id var = (scope pc var, var) in
-    let value_ = function
+    let llvm_value = function
       | Int i -> const_int i32 i
       | Fun_ref f -> get_active_version the_module program f
       | (Nil|Bool _|Array _) -> assert(false)
@@ -103,7 +104,7 @@ let generate_instr program the_module func scope formals (prog : instructions) :
                             | Not_found -> raise (Error "unknown variable name")) in
               build_load alloca x builder
           end
-      | Constant c        -> value_ c
+      | Constant c        -> llvm_value c
     in
     let dump_expr exp : Llvm.llvalue =
       match exp with
@@ -126,11 +127,10 @@ let generate_instr program the_module func scope formals (prog : instructions) :
       | Array_index (_, _)
       | Array_length _     -> assert(false)
     in
-    let dump_arg arg = dump_expr arg in
 
+    let dump_arg arg = dump_expr arg in
     begin match instr with
-    | Return exp                      ->
-        Printf.printf "ret\n";
+    | Return exp ->
         let ret_val = dump_expr exp in
         build_ret ret_val builder;
         ()
@@ -142,11 +142,15 @@ let generate_instr program the_module func scope formals (prog : instructions) :
         ignore(build_store start_val alloca builder);
         ()
     | Call (l, var, f, args) ->
+        (* get function reference `'foo ()` *)
         let func_ref = dump_expr f in
+        (* and its arguments (casted to Array)*)
         let func_args = List.map dump_expr args in
         let func_args = Array.of_list func_args in
+        (* build the call, get return value *)
         let ret_val = build_call func_ref func_args "calltmp" builder in
 
+        (* lookup the variable name  *)
         let id = (Instr pc, var) in
         let alloca = Hashtbl.find llvm_scope id in
         (* Store value into alloc *)
@@ -167,6 +171,7 @@ let generate_instr program the_module func scope formals (prog : instructions) :
     | Branch (exp, l1, l2) ->
         assert(false)
     | Label (MergeLabel label | BranchLabel label) ->
+        (* add basic block to builder at current position *)
         let bb = Hashtbl.find labels label in
         position_at_end bb builder; ()
     | Goto label ->
@@ -188,23 +193,24 @@ let generate_instr program the_module func scope formals (prog : instructions) :
   in
   Array.iteri (dump_instr func) prog
 
-
-
+(* entry point *)
 let generate (program : Instr.program) =
   let the_module = create_module context "Sourir LLVM Jit" in
   let open Types in
+  (* Pass 1: declare functions *)
   List.iter (fun ({name; formals; body} as sourir_function) ->
-      List.iter (fun version ->
-        let llvm_function = func_decl the_module (String.concat "::" [name; version.label]) formals in
-        ()
-      ) body
-    )(program.main :: program.functions);
+    List.iter (fun version ->
+      let llvm_function = func_decl the_module (String.concat "::" [name; version.label]) formals in
+      ()
+    ) body
+  ) (program.main :: program.functions);
 
+  (* Pass 2: lookup current function, generate its content *)
   List.iter (fun ({name; formals; body} as sourir_function) ->
-      List.iter (fun version ->
-        let llvm_function = func_lookup the_module (String.concat "::" [name; version.label]) in
-        let scope = Scope.infer_decl (Analysis.as_analysis_input sourir_function version) in
-        generate_instr program the_module llvm_function scope formals version.instrs;
-        Llvm_analysis.assert_valid_function llvm_function) body
-      ) (program.main :: program.functions);
+    List.iter (fun version ->
+      let llvm_function = func_lookup the_module (String.concat "::" [name; version.label]) in
+      let scope = Scope.infer_decl (Analysis.as_analysis_input sourir_function version) in
+      generate_instr program the_module llvm_function scope formals version.instrs;
+      Llvm_analysis.assert_valid_function llvm_function) body
+    ) (program.main :: program.functions);
   the_module
