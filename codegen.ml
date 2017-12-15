@@ -37,7 +37,7 @@ let get_active_version the_module program fun_name =
   let name = iter_functions (program.main :: program.functions) in
   func_lookup the_module name
 
-let generate_instr program the_module func scope formals (prog : instructions) : unit =
+let generate_instr the_module func program scope formals (prog : instructions) : unit =
   (* the llvm_scope remembers the declaration of local variables. We use
    * the infered declaration site of the variable for the index. *)
   let llvm_scope : (instr_position * variable, llvalue) Hashtbl.t = Hashtbl.create 10 in
@@ -98,7 +98,9 @@ let generate_instr program the_module func scope formals (prog : instructions) :
           let id = var_id v in
           begin match id with
           | Arg, x     ->
-                Hashtbl.find llvm_scope id
+              let arg = (try Hashtbl.find llvm_scope id with
+               | Not_found -> raise (Error "unknown variable name")) in
+              arg
           | Instr i, x ->
               let alloca = (try Hashtbl.find llvm_scope id with
                             | Not_found -> raise (Error "unknown variable name")) in
@@ -111,16 +113,16 @@ let generate_instr program the_module func scope formals (prog : instructions) :
       | Simple e           -> simple e
       | Unop (Neg, a)      -> simple a
       | Unop (Not, a)      -> simple a
-      | Binop (Plus, a, b) -> build_add (simple a) (simple b) "addtmp" builder
-      | Binop (Sub,  a, b) -> build_sub (simple a) (simple b) "subtmp" builder
-      | Binop (Mult, a, b) -> build_mul (simple a) (simple b) "multtmp" builder
+      | Binop (Plus, a, b) -> build_add  (simple a) (simple b) "addtmp" builder
+      | Binop (Sub,  a, b) -> build_sub  (simple a) (simple b) "subtmp" builder
+      | Binop (Mult, a, b) -> build_mul  (simple a) (simple b) "multtmp" builder
       | Binop (Div,  a, b) -> build_udiv (simple a) (simple b) "divtmp" builder
-      | Binop (Eq,   a, b) -> build_icmp Icmp.Eq (simple a) (simple b) "eqtmp" builder
-      | Binop (Neq,  a, b) -> build_icmp Icmp.Ne (simple a) (simple b) "eqtmp" builder
-      | Binop (Lt,   a, b) -> build_icmp Icmp.Slt (simple a) (simple b) "eqtmp" builder
-      | Binop (Lte,  a, b) -> build_icmp Icmp.Sle (simple a) (simple b) "eqtmp" builder
-      | Binop (Gt,   a, b) -> build_icmp Icmp.Sgt (simple a) (simple b) "eqtmp" builder
-      | Binop (Gte,  a, b) -> build_icmp Icmp.Sge (simple a) (simple b) "eqtmp" builder
+      | Binop (Eq,   a, b) -> build_icmp Icmp.Eq  (simple a) (simple b) "eqtmp" builder
+      | Binop (Neq,  a, b) -> build_icmp Icmp.Ne  (simple a) (simple b) "neqtmp" builder
+      | Binop (Lt,   a, b) -> build_icmp Icmp.Slt (simple a) (simple b) "lttmp" builder
+      | Binop (Lte,  a, b) -> build_icmp Icmp.Sle (simple a) (simple b) "ltetmp" builder
+      | Binop (Gt,   a, b) -> build_icmp Icmp.Sgt (simple a) (simple b) "gttmp" builder
+      | Binop (Gte,  a, b) -> build_icmp Icmp.Sge (simple a) (simple b) "gtetmp" builder
       | Binop (And,  _, _)
       | Binop (Or,   _, _)
       | Binop (Mod,  _, _)
@@ -137,7 +139,8 @@ let generate_instr program the_module func scope formals (prog : instructions) :
     | Decl_var (var, exp) ->
         let start_val = dump_expr exp in
         let id = (Instr pc, var) in
-        let alloca = Hashtbl.find llvm_scope id in
+        let alloca = (try Hashtbl.find llvm_scope id with
+                      | Not_found -> raise (Error "unknown variable name")) in
         (* Store value into alloc *)
         ignore(build_store start_val alloca builder);
         ()
@@ -152,7 +155,8 @@ let generate_instr program the_module func scope formals (prog : instructions) :
 
         (* lookup the variable name  *)
         let id = (Instr pc, var) in
-        let alloca = Hashtbl.find llvm_scope id in
+        let alloca = (try Hashtbl.find llvm_scope id with
+                      | Not_found -> raise (Error "unknown variable name")) in
         (* Store value into alloc *)
         ignore(build_store ret_val alloca builder);
         ()
@@ -170,15 +174,19 @@ let generate_instr program the_module func scope formals (prog : instructions) :
         assert(false)
     | Branch (exp, l1, l2) ->
         (* add basic block to builder at current position *)
-        let l1 = Hashtbl.find labels l1 in
-        let l2 = Hashtbl.find labels l2 in
+        let l1 = (try Hashtbl.find labels l1 with
+                      | Not_found -> raise (Error "unknown label name")) in
+        let l2 = (try Hashtbl.find labels l2 with
+                      | Not_found -> raise (Error "unknown label name")) in
         build_cond_br (dump_expr exp) l1 l2 builder; ()
     | Label (MergeLabel label | BranchLabel label) ->
         (* add basic block to builder at current position *)
-        let bb = Hashtbl.find labels label in
+        let bb = (try Hashtbl.find labels label with
+                      | Not_found -> raise (Error "unknown label name")) in
         position_at_end bb builder; ()
     | Goto label ->
-        let bb = Hashtbl.find labels label in
+        let bb = (try Hashtbl.find labels label with
+                      | Not_found -> raise (Error "unknown label name")) in
         build_br bb builder; ()
     | Print exp ->
         assert(false)
@@ -213,7 +221,7 @@ let generate (program : Instr.program) =
     List.iter (fun version ->
       let llvm_function = func_lookup the_module (String.concat "::" [name; version.label]) in
       let scope = Scope.infer_decl (Analysis.as_analysis_input sourir_function version) in
-      generate_instr program the_module llvm_function scope formals version.instrs;
+      generate_instr the_module llvm_function program scope formals version.instrs;
       Llvm_analysis.assert_valid_function llvm_function) body
     ) (program.main :: program.functions);
   the_module

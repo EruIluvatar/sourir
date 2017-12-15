@@ -1,11 +1,10 @@
 function main ()
   var bar = 3
-  goto la
- lb:
-  return 2
- la:
-  call baz = 'foo (bar, 5)
+  call baz = 'sum (bar, 5)
   branch (baz == 8) $lb $la
+ $lb:
+  return 2
+ $la:
   return 1
 
 function sum (var param1, var param2)
