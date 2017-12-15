@@ -144,18 +144,18 @@ let () =
   if !llvm then begin
     let the_module = Codegen.generate program in
     let _ = Jit.exec the_module in ()
-  end;
-
-  if not !run then ()
-  else begin
-    let conf = Eval.run_interactive IO.stdin_input program in
-    let open Eval in
-    match conf.status with
-    | Running -> assert(false)
-    | Result (Int n) ->
-      exit n
-    | Result (Bool b) ->
-      exit (if b then 1 else 0)
-    | Result (Fun_ref _ | Array _ | Nil) ->
-      exit 0
+  end else begin
+    if not !run then ()
+    else begin
+      let conf = Eval.run_interactive IO.stdin_input program in
+      let open Eval in
+      match conf.status with
+      | Running -> assert(false)
+      | Result (Int n) ->
+        exit n
+      | Result (Bool b) ->
+        exit (if b then 1 else 0)
+      | Result (Fun_ref _ | Array _ | Nil) ->
+        exit 0
+    end
   end

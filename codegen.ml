@@ -136,9 +136,10 @@ let generate_instr the_module func program scope formals (prog : instructions) :
         let ret_val = dump_expr exp in
         build_ret ret_val builder;
         ()
+    | Assign (var, exp)
     | Decl_var (var, exp) ->
         let start_val = dump_expr exp in
-        let id = (Instr pc, var) in
+        let id = (scope (pc+1) var, var) in
         let alloca = (try Hashtbl.find llvm_scope id with
                       | Not_found -> raise (Error "unknown variable name")) in
         (* Store value into alloc *)
@@ -167,8 +168,6 @@ let generate_instr the_module func program scope formals (prog : instructions) :
     | Decl_array (var, List li) ->
         assert(false)
     | Drop var ->
-        assert(false)
-    | Assign (var, exp) ->
         assert(false)
     | Array_assign (var, index, exp) ->
         assert(false)
