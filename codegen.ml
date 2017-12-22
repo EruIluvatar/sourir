@@ -37,23 +37,28 @@ let get_active_version the_module program fun_name =
   let name = iter_functions (program.main :: program.functions) in
   func_lookup the_module name
 
-let generate_instr the_module func program scope formals (prog : instructions) : unit =
-  (* the llvm_scope remembers the declaration of local variables. We use
-   * the infered declaration site of the variable for the index. *)
-  let llvm_scope : (instr_position * variable, llvalue) Hashtbl.t = Hashtbl.create 10 in
+let generate_func the_module func program scope formals (prog : instructions) : unit =
+  (* vars remembers the declaration of local variables
+   * labels remembers the bb's of labels
+   * We use the infered declaration site of the variable for the index. *)
+  let vars : (instr_position * variable, llvalue) Hashtbl.t = Hashtbl.create 10 in
   let labels : (string, llbasicblock) Hashtbl.t = Hashtbl.create 10 in
+  let lookup_var id = (try Hashtbl.find vars id with
+                       | Not_found -> raise (Error "unknown variable name")) in
+  let lookup_label l = (try Hashtbl.find labels l with
+                       | Not_found -> raise (Error "unknown label name")) in
 
   (* create entry block for function *)
   let bb = append_block context "entry" func in
   position_at_end bb builder;
 
-  (* Store function arguments into the llvm_scope table,
+  (* Store function arguments into the vars table,
    * set the names of the (positional) function arguments *)
   List.iteri (fun i (Param name) ->
     let arg = (params func).(i) in
     let id = (Arg, name) in
     set_value_name name arg;
-    Hashtbl.add llvm_scope id arg;
+    Hashtbl.add vars id arg;
   ) formals;
 
   (* Pass 1: Generate Basic blocks and declare local variables *)
@@ -62,17 +67,21 @@ let generate_instr the_module func program scope formals (prog : instructions) :
     | Decl_var (var, exp) ->
         let alloca = build_alloca i32 var builder in
         let id = (Instr pc, var) in
-        Hashtbl.add llvm_scope id alloca;
+        Hashtbl.add vars id alloca;
         ()
     | Call (l, var, f, args) ->
         (* Call is not an expression, it stores the return value in l.
          * Therefor we need an alloca *)
         let alloca = build_alloca i32 var builder in
         let id = (Instr pc, var) in
-        Hashtbl.add llvm_scope id alloca;
+        Hashtbl.add vars id alloca;
         ()
     | Decl_array (var, Length exp) ->
-        assert(false)
+        (*let alloca = build_array_alloca (dump_expr exp) i32 var builder in
+        let id = (Instr pc, var) in
+        Hashtbl.add vars id alloca;
+        *)
+        ()
     | Decl_array (var, List li) ->
         assert(false)
     | Label (MergeLabel label | BranchLabel label) ->
@@ -98,12 +107,10 @@ let generate_instr the_module func program scope formals (prog : instructions) :
           let id = var_id v in
           begin match id with
           | Arg, x     ->
-              let arg = (try Hashtbl.find llvm_scope id with
-               | Not_found -> raise (Error "unknown variable name")) in
+              let arg = lookup_var id in
               arg
           | Instr i, x ->
-              let alloca = (try Hashtbl.find llvm_scope id with
-                            | Not_found -> raise (Error "unknown variable name")) in
+              let alloca = lookup_var id in
               build_load alloca x builder
           end
       | Constant c        -> llvm_value c
@@ -140,8 +147,7 @@ let generate_instr the_module func program scope formals (prog : instructions) :
     | Decl_var (var, exp) ->
         let start_val = dump_expr exp in
         let id = (scope (pc+1) var, var) in
-        let alloca = (try Hashtbl.find llvm_scope id with
-                      | Not_found -> raise (Error "unknown variable name")) in
+        let alloca = lookup_var id in
         (* Store value into alloc *)
         ignore(build_store start_val alloca builder);
         ()
@@ -156,8 +162,7 @@ let generate_instr the_module func program scope formals (prog : instructions) :
 
         (* lookup the variable name  *)
         let id = (Instr pc, var) in
-        let alloca = (try Hashtbl.find llvm_scope id with
-                      | Not_found -> raise (Error "unknown variable name")) in
+        let alloca = lookup_var id in
         (* Store value into alloc *)
         ignore(build_store ret_val alloca builder);
         ()
@@ -173,22 +178,18 @@ let generate_instr the_module func program scope formals (prog : instructions) :
         assert(false)
     | Branch (exp, l1, l2) ->
         (* add basic block to builder at current position *)
-        let l1 = (try Hashtbl.find labels l1 with
-                      | Not_found -> raise (Error "unknown label name")) in
-        let l2 = (try Hashtbl.find labels l2 with
-                      | Not_found -> raise (Error "unknown label name")) in
+        let l1 = lookup_label l1 in
+        let l2 = lookup_label l2 in
         build_cond_br (dump_expr exp) l1 l2 builder; ()
     | Label (MergeLabel label | BranchLabel label) ->
         (* add basic block to builder at current position *)
-        let bb = (try Hashtbl.find labels label with
-                      | Not_found -> raise (Error "unknown label name")) in
+        let bb = lookup_label label in
         position_at_end bb builder; ()
     | Goto label ->
-        let bb = (try Hashtbl.find labels label with
-                      | Not_found -> raise (Error "unknown label name")) in
+        let bb = lookup_label label in
         build_br bb builder; ()
     | Print exp ->
-        assert(false)
+        ()
     | Assert exp ->
         assert(false)
     | Guard_hint es ->
@@ -220,7 +221,7 @@ let generate (program : Instr.program) =
     List.iter (fun version ->
       let llvm_function = func_lookup the_module (String.concat "::" [name; version.label]) in
       let scope = Scope.infer_decl (Analysis.as_analysis_input sourir_function version) in
-      generate_instr the_module llvm_function program scope formals version.instrs;
+      generate_func the_module llvm_function program scope formals version.instrs;
       Llvm_analysis.assert_valid_function llvm_function) body
     ) (program.main :: program.functions);
   the_module
