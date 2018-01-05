@@ -63,6 +63,47 @@ let generate_func the_module func program scope formals (prog : instructions) : 
 
   (* Pass 1: Generate Basic blocks and declare local variables *)
   let dump_instr func pc instr : unit =
+    let var_id var = (scope pc var, var) in
+    let llvm_value = function
+      | Int i -> const_int i32 i
+      | Fun_ref f -> get_active_version the_module program f
+      | (Nil|Bool _|Array _) -> assert(false)
+    in
+    let simple = function
+      | Var v             ->
+          let id = var_id v in
+          begin match id with
+          | Arg, x     ->
+              let arg = lookup_var id in
+              arg
+          | Instr i, x ->
+              let alloca = lookup_var id in
+              build_load alloca x builder
+          end
+      | Constant c        -> llvm_value c
+    in
+    let dump_expr exp : Llvm.llvalue =
+      match exp with
+      | Simple e           -> simple e
+      | Unop (Neg, a)      -> simple a
+      | Unop (Not, a)      -> simple a
+      | Binop (Plus, a, b) -> build_add  (simple a) (simple b) "addtmp" builder
+      | Binop (Sub,  a, b) -> build_sub  (simple a) (simple b) "subtmp" builder
+      | Binop (Mult, a, b) -> build_mul  (simple a) (simple b) "multtmp" builder
+      | Binop (Div,  a, b) -> build_udiv (simple a) (simple b) "divtmp" builder
+      | Binop (Eq,   a, b) -> build_icmp Icmp.Eq  (simple a) (simple b) "eqtmp" builder
+      | Binop (Neq,  a, b) -> build_icmp Icmp.Ne  (simple a) (simple b) "neqtmp" builder
+      | Binop (Lt,   a, b) -> build_icmp Icmp.Slt (simple a) (simple b) "lttmp" builder
+      | Binop (Lte,  a, b) -> build_icmp Icmp.Sle (simple a) (simple b) "ltetmp" builder
+      | Binop (Gt,   a, b) -> build_icmp Icmp.Sgt (simple a) (simple b) "gttmp" builder
+      | Binop (Gte,  a, b) -> build_icmp Icmp.Sge (simple a) (simple b) "gtetmp" builder
+      | Binop (And,  _, _)
+      | Binop (Or,   _, _)
+      | Binop (Mod,  _, _)
+      | Array_index (_, _)
+      | Array_length _     -> assert(false)
+    in
+
     begin match instr with
     | Decl_var (var, exp) ->
         let alloca = build_alloca i32 var builder in
@@ -77,13 +118,15 @@ let generate_func the_module func program scope formals (prog : instructions) : 
         Hashtbl.add vars id alloca;
         ()
     | Decl_array (var, Length exp) ->
-        (*let alloca = build_array_alloca (dump_expr exp) i32 var builder in
+        let alloca = build_array_alloca i32 (dump_expr exp) var builder in
         let id = (Instr pc, var) in
         Hashtbl.add vars id alloca;
-        *)
         ()
     | Decl_array (var, List li) ->
-        assert(false)
+        let alloca = build_array_alloca i32 (const_int i32 (List.length li)) var builder in
+        let id = (Instr pc, var) in
+        Hashtbl.add vars id alloca;
+        ()
     | Label (MergeLabel label | BranchLabel label) ->
         (* Create own basic blocks, stored in 'labels' table *)
         let bb = append_block context label func in
@@ -169,9 +212,9 @@ let generate_func the_module func program scope formals (prog : instructions) : 
     | Stop exp ->
         assert(false)
     | Decl_array (var, Length exp) ->
-        assert(false)
+        ()
     | Decl_array (var, List li) ->
-        assert(false)
+        ()
     | Drop var ->
         assert(false)
     | Array_assign (var, index, exp) ->
